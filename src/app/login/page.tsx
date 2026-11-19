@@ -36,7 +36,7 @@ async function authenticate(
   password: FormDataEntryValue | null,
 ) {
   try {
-    await signIn('credentials', { email, password, redirectTo: '/portal' });
+    await signIn('credentials', { email, password, redirectTo: '/portal?start=1' });
   } catch (error) {
     if (error instanceof AuthError) redirect('/login?error=1');
     throw error;
@@ -48,7 +48,7 @@ export default async function Login({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  if (await currentUser()) redirect('/portal');
+  if (await currentUser()) redirect('/portal?start=1');
   const { error } = await searchParams;
   return (
     <div className="login-site">

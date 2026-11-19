@@ -21,6 +21,15 @@ enum Status {
   PUBLISHED
 }
 
+enum StartPage {
+  overview
+  announcements
+  corrections
+  review
+  cases
+  accounts
+}
+
 model Institution {
   id            String         @id @default(uuid())
   name          String
@@ -34,6 +43,8 @@ model User {
   institution   Institution      @relation(fields: [institutionId], references: [id])
   email         String           @unique
   name          String
+  preferredName String?
+  startPage     StartPage        @default(overview)
   passwordHash  String
   active        Boolean          @default(true)
   roles         RoleAssignment[]

@@ -57,6 +57,9 @@ export async function currentUser() {
     id: user.id,
     institutionId: user.institutionId,
     name: user.name,
+    email: user.email,
+    preferredName: user.preferredName,
+    startPage: user.startPage,
     roles,
   };
 }

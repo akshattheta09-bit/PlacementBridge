@@ -37,7 +37,7 @@ function session() {
       html: load(await response.text()),
     };
   }
-  async function form(path, select, fields) {
+  async function form(path, select, fields, expectedError) {
     const page = await request(path);
     assert.equal(page.status, 200);
     const form = select(page.html);
@@ -51,7 +51,8 @@ function session() {
     for (const [key, value] of Object.entries(fields)) data.set(key, value);
     const result = await request(path, data);
     assert.equal(result.status, 303);
-    assert.ok(!result.location?.includes('error'), result.location);
+    if (expectedError) assert.match(result.location ?? '', expectedError);
+    else assert.ok(!result.location?.includes('error'), result.location);
     return result;
   }
   return { request, form };
@@ -64,7 +65,11 @@ async function login(role, expected) {
   });
   const overview = await client.request('/portal');
   assert.equal(
-    overview.html('nav [aria-current=page]').text().trim().endsWith('Overview'),
+    overview
+      .html('#workspace-sidebar nav [aria-current=page]')
+      .text()
+      .trim()
+      .endsWith('Overview'),
     true,
   );
   const view = {
@@ -76,7 +81,7 @@ async function login(role, expected) {
   }[role];
   const res = await client.request('/portal?view=' + view);
   assert.equal(
-    res.html('nav [aria-current=page]').attr('href'),
+    res.html('#workspace-sidebar nav [aria-current=page]').attr('href'),
     '/portal?view=' + view,
   );
   assert.equal(res.status, 200);
@@ -108,6 +113,64 @@ assert.match(
   /Avery Student/,
 );
 
+const profilePath = '/portal?view=profile';
+const profileSelector = ($) => $('#account-preferences');
+const before = (await student.request(profilePath)).html;
+const previousName = before('#preferredName').val() ?? '';
+const previousStart = before('#startPage option[selected]').val() ?? 'overview';
+try {
+  const saved = await student.form(profilePath, profileSelector, {
+    preferredName: 'Avery Preview',
+    startPage: 'corrections',
+  });
+  const profile = (await student.request(saved.location)).html;
+  assert.match(profile('[role=status]').text(), /preferences were saved/);
+  assert.equal(profile('#preferredName').val(), 'Avery Preview');
+  assert.equal(profile('#startPage option[selected]').val(), 'corrections');
+  assert.match(profile('.account-identity').text(), /student@example.test/);
+  const returningStudent = session();
+  const loginResult = await returningStudent.form(
+    '/login',
+    ($) => $('#credentials'),
+    {
+      email: 'student@example.test',
+      password: process.env.DEMO_PASSWORD,
+    },
+  );
+  assert.match(loginResult.location ?? '', /start=1/);
+  assert.equal(
+    (await returningStudent.request(loginResult.location)).location,
+    '/portal?view=corrections',
+  );
+  assert.match(
+    (await returningStudent.request('/portal')).html('h1').text(),
+    /Avery Preview/,
+  );
+
+  await student.form(
+    profilePath,
+    profileSelector,
+    {
+      preferredName: 'Invalid selection',
+      startPage: 'accounts',
+    },
+    /error=profile-input/,
+  );
+  assert.equal(
+    (await student.request(profilePath)).html('#preferredName').val(),
+    'Avery Preview',
+  );
+  assert.doesNotMatch(
+    (await officer.request(profilePath)).html('main').text(),
+    /Avery Preview/,
+  );
+} finally {
+  await student.form(profilePath, profileSelector, {
+    preferredName: previousName,
+    startPage: previousStart,
+  });
+}
+
 const demo = session();
 const signIn = await demo.request('/login');
 if (signIn.html('.demo-picker').length) {
@@ -115,7 +178,7 @@ if (signIn.html('.demo-picker').length) {
     account: 'student@example.test',
   });
   assert.match(
-    (await demo.request('/portal')).html('main').text(),
+    (await demo.request(profilePath)).html('.account-identity').text(),
     /Avery Student/,
   );
 }
@@ -172,6 +235,17 @@ await officer.form(path, ($) => $('#create form'), {
   effectiveDate: '2026-11-21',
 });
 await publish(corrected);
+const search = await student.request(
+  announcements + '&q=' + encodeURIComponent(title),
+);
+assert.equal(card(search.html, title).length, 1);
+assert.equal(card(search.html, corrected).length, 1);
+assert.match(
+  (await student.request(announcements + '&q=impossible-search-term'))
+    .html('main')
+    .text(),
+  /No notices match your search/,
+);
 const feed = (await student.request(announcements)).html;
 const corrections = (await student.request('/portal?view=corrections')).html;
 assert.match(corrections('main h1').text(), /Published corrections/);
@@ -179,8 +253,8 @@ assert.equal(card(corrections, corrected).length, 1);
 assert.equal(card(corrections, title).length, 0);
 assert.match(card(feed, title).text(), /Superseded/);
 assert.match(card(feed, corrected).text(), /No action required/);
-await student.form(announcements, ($) => $('aside form'), {});
+await student.form(announcements, ($) => $('#workspace-sidebar form'), {});
 assert.equal((await student.request('/portal')).location, '/login');
 console.log(
-  'HTTP smoke passed: landing, anonymous denial, all four roles, sign-in/out, independent approval, publication and correction visibility.',
+  'HTTP smoke passed: landing, anonymous denial, all four roles, sign-in/out, profile preferences and access checks, independent approval, publication, search and correction visibility.',
 );

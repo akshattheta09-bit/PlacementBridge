@@ -4,7 +4,14 @@ import type { Prisma } from '@prisma/client';
 import { currentUser, signOut } from '@/lib/auth';
 import { can } from '@/lib/permissions';
 import { db } from '@/lib/db';
-import { Brand } from '../identity';
+import {
+  isStartPage,
+  viewUrl,
+  workspaceNavigation,
+  type View,
+} from '@/lib/workspace';
+import { Profile } from './profile';
+import { WorkspaceFrame } from './workspace-frame';
 import { change, create } from './actions';
 
 const relations = {
@@ -13,15 +20,6 @@ const relations = {
 } satisfies Prisma.AnnouncementInclude;
 
 type Notice = Prisma.AnnouncementGetPayload<{ include: typeof relations }>;
-type View =
-  | 'overview'
-  | 'announcements'
-  | 'corrections'
-  | 'review'
-  | 'compose'
-  | 'cases'
-  | 'accounts'
-  | 'profile';
 const statuses = {
   DRAFT: 'Draft',
   PENDING_REVIEW: 'Pending review',
@@ -44,10 +42,6 @@ const feedback = {
   approved: 'Notice approved and ready to publish.',
   published: 'Notice published to the student bulletin.',
 };
-
-function viewUrl(view: View) {
-  return view === 'overview' ? '/portal' : `/portal?view=${view}`;
-}
 
 function NoticeCard({
   item,
@@ -269,6 +263,9 @@ export default async function Portal({
     correction?: string;
     result?: string;
     notice?: string;
+    start?: string;
+    q?: string;
+    page?: string;
   }>;
 }) {
   const user = await currentUser();
@@ -278,19 +275,19 @@ export default async function Portal({
   const reader = can(user.roles, 'announcement.read');
   const reviewer = can(user.roles, 'reviewer.enter');
   const admin = can(user.roles, 'admin.enter');
-  const nav: { view: View; label: string }[] = [
-    { view: 'overview', label: 'Overview' },
-  ];
-  if (reader) nav.push({ view: 'announcements', label: 'Announcements' });
-  if (reader) nav.push({ view: 'corrections', label: 'Corrections' });
-  if (officer)
-    nav.push(
-      { view: 'review', label: 'Review queue' },
-      { view: 'compose', label: 'New announcement' },
+  const nav = workspaceNavigation(user.roles);
+  const startPages = nav.flatMap(({ view, label }) =>
+    isStartPage(view) ? [{ view, label }] : [],
+  );
+  if (params.start === '1' && !params.view) {
+    redirect(
+      viewUrl(
+        startPages.find(({ view }) => view === user.startPage)?.view ??
+          'overview',
+      ),
     );
-  if (reviewer) nav.push({ view: 'cases', label: 'Assigned cases' });
-  if (admin) nav.push({ view: 'accounts', label: 'Accounts' });
-  nav.push({ view: 'profile', label: 'My profile' });
+  }
+  const displayName = user.preferredName ?? user.name;
 
   const view =
     nav.find(
@@ -318,19 +315,54 @@ export default async function Portal({
   const list =
     reader &&
     ['overview', 'announcements', 'review', 'corrections'].includes(view);
-  const [items, counts, target, accounts] = await Promise.all([
+  const browsingNotices = list && view !== 'overview' && !params.notice;
+  const query =
+    browsingNotices && typeof params.q === 'string'
+      ? params.q.trim().slice(0, 120)
+      : '';
+  const pageSize = 15;
+  const maxPage = 200;
+  const page =
+    browsingNotices &&
+    typeof params.page === 'string' &&
+    /^\d{1,3}$/.test(params.page)
+      ? Math.min(maxPage, Math.max(1, Number(params.page)))
+      : 1;
+  function pageUrl(next: number) {
+    const search = new URLSearchParams({ view });
+    if (query) search.set('q', query);
+    if (next > 1) search.set('page', String(next));
+    return `/portal?${search}`;
+  }
+  const filters: Prisma.AnnouncementWhereInput = query
+    ? {
+        AND: [
+          where,
+          {
+            OR: [
+              { title: { contains: query, mode: 'insensitive' } },
+              { summary: { contains: query, mode: 'insensitive' } },
+              { source: { contains: query, mode: 'insensitive' } },
+            ],
+          },
+        ],
+      }
+    : where;
+  const [results, counts, target, accounts] = await Promise.all([
     list
       ? db.announcement.findMany({
           where:
             params.notice && view !== 'overview' && view !== 'review'
               ? { ...where, id: params.notice }
-              : where,
+              : filters,
           include: relations,
           orderBy: [
             { publishedAt: { sort: 'desc', nulls: 'first' } },
             { updatedAt: 'desc' },
+            { id: 'asc' },
           ],
-          take: view === 'overview' ? 3 : 50,
+          skip: browsingNotices ? (page - 1) * pageSize : 0,
+          take: browsingNotices ? pageSize + 1 : view === 'overview' ? 3 : 1,
         })
       : [],
     reader && view === 'overview'
@@ -370,6 +402,9 @@ export default async function Portal({
         })
       : [],
   ]);
+  const hasMore =
+    browsingNotices && results.length > pageSize && page < maxPage;
+  const items = browsingNotices ? results.slice(0, pageSize) : results;
   const legacyIds = items.flatMap((item) =>
     item.publishedById && !item.publisherName ? [item.publishedById] : [],
   );
@@ -393,7 +428,8 @@ export default async function Portal({
     profile: 'My profile',
   };
   const descriptions: Partial<Record<View, string>> = {
-    overview: `Signed in as ${user.name}.`,
+    overview: 'Read the latest placement notices and published corrections.',
+    profile: 'Review your account details and personalize your workspace.',
     announcements: officer
       ? 'Draft, review and publish notices for students.'
       : 'Published notices with their source and publishing officer.',
@@ -410,220 +446,228 @@ export default async function Portal({
     view === 'overview' ? 'Latest official announcements' : null;
 
   return (
-    <div className="workspace">
-      <a className="skip-link" href="#main-content">
-        Skip to content
-      </a>
-      <aside className="workspace-sidebar">
-        <Brand />
-        <div className="sidebar-role">{role}</div>
-        <nav className="workspace-nav" aria-label="Workspace">
-          {nav.map(({ view: destination, label }) => (
-            <Link
-              key={destination}
-              href={viewUrl(destination)}
-              aria-current={view === destination ? 'page' : undefined}
-            >
-              {label}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-account">
-          <div className="avatar" aria-hidden="true">
-            {user.name
-              .split(' ')
-              .map((part) => part[0])
-              .slice(0, 2)
-              .join('')}
-          </div>
-          <div>
-            <strong>{user.name}</strong>
-            <form
-              action={async () => {
-                'use server';
-                await signOut({ redirectTo: '/' });
-              }}
-            >
-              <button>Sign out</button>
-            </form>
-          </div>
+    <WorkspaceFrame
+      navigation={nav}
+      view={view}
+      title={labels[view]}
+      displayName={displayName}
+      role={role}
+      signOutAction={async () => {
+        'use server';
+        await signOut({ redirectTo: '/' });
+      }}
+    >
+      <div
+        className={
+          view === 'overview'
+            ? 'page-heading workspace-welcome'
+            : 'page-heading'
+        }
+      >
+        <div>
+          {view === 'overview' && <p className="kicker">{role} workspace</p>}
+          <h1>
+            {view === 'overview'
+              ? `Welcome, ${user.preferredName ?? user.name.split(' ')[0]}`
+              : labels[view]}
+          </h1>
+          {descriptions[view] && <p>{descriptions[view]}</p>}
         </div>
-      </aside>
-      <div className="workspace-body">
-        <div className="workspace-bar">
-          <span>
-            Workspace <span aria-hidden="true">/</span>{' '}
-            <strong>{labels[view]}</strong>
-          </span>
-          <span className="demo-label">Synthetic demo</span>
-        </div>
-        <main className="workspace-main" id="main-content">
-          <div className="page-heading">
-            <div>
-              <h1>{labels[view]}</h1>
-              {descriptions[view] && <p>{descriptions[view]}</p>}
-            </div>
-            {officer && ['overview', 'announcements'].includes(view) && (
-              <Link className="button" href={viewUrl('compose')}>
-                New announcement
-              </Link>
-            )}
-          </div>
-          {message && (
-            <p className="feedback" role="status">
-              {message}
-            </p>
-          )}
-          {params.error && (
-            <p className="feedback error" role="alert">
-              The change could not be saved. Check the notice status and try
-              again.
-            </p>
-          )}
-          <div className={counts ? 'overview-grid' : undefined}>
-            {list && (
-              <section
-                className="notice-list"
-                aria-label={listTitle ?? labels[view]}
-              >
-                {listTitle && (
-                  <div className="list-heading">
-                    <h2>{listTitle}</h2>
-                    <Link className="text-link" href={viewUrl('announcements')}>
-                      View all →
-                    </Link>
-                  </div>
-                )}
-                {params.notice && view !== 'overview' && (
-                  <Link className="text-link" href={viewUrl(view)}>
-                    ← Back to{' '}
-                    {view === 'corrections' ? 'corrections' : 'announcements'}
-                  </Link>
-                )}
-                {items.length === 0 ? (
-                  <p className="panel empty">
-                    {view === 'review'
-                      ? 'No notices currently need your review or publication.'
-                      : view === 'corrections'
-                        ? 'No published corrections found.'
-                        : 'No notices found.'}
-                  </p>
-                ) : (
-                  items.map((item) => (
-                    <NoticeCard
-                      key={item.id}
-                      item={item}
-                      officer={officer}
-                      userId={user.id}
-                      view={view}
-                      publishedBy={
-                        publishers.find(
-                          (publisher) => publisher.id === item.publishedById,
-                        )?.name
-                      }
-                    />
-                  ))
-                )}
-              </section>
-            )}
-            {view === 'overview' && counts && (
-              <section className="metrics" aria-label="Workspace summary">
-                <h2>Workspace summary</h2>
-                <Link href={viewUrl('announcements')}>
-                  <span>Published notices</span>
-                  <strong>{counts[0]}</strong>
-                </Link>
-                <Link href={viewUrl('corrections')}>
-                  <span>Published corrections</span>
-                  <strong>{counts[1]}</strong>
-                </Link>
-                {officer && (
-                  <Link href={viewUrl('review')}>
-                    <span>Review queue</span>
-                    <strong>{counts[2]}</strong>
-                  </Link>
-                )}
-              </section>
-            )}
-          </div>
-          {view === 'compose' &&
-            (params.correction && !target ? (
-              <div className="panel empty">
-                <p>This notice is unavailable for correction.</p>
-                <Link className="text-link" href={viewUrl('announcements')}>
-                  Back to announcements →
-                </Link>
-              </div>
-            ) : (
-              <Composer target={target} />
-            ))}
-          {(view === 'cases' ||
-            (view === 'overview' && !reader && reviewer)) && (
-            <section className="panel empty">
-              <h2>Confidential case workspace</h2>
-              <p>
-                Case handling is disabled in this prototype. No confidential
-                records are collected.
-              </p>
-            </section>
-          )}
-          {view === 'overview' && !reader && admin && (
-            <section className="panel empty">
-              <h2>Platform administration</h2>
-              <p>Review synthetic accounts and their active roles.</p>
-              <Link className="text-link" href={viewUrl('accounts')}>
-                View accounts →
-              </Link>
-            </section>
-          )}
-          {view === 'accounts' && (
-            <div className="panel table-wrap">
-              <table>
-                <caption>Synthetic accounts · showing up to 100</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Name</th>
-                    <th scope="col">Roles</th>
-                    <th scope="col">Account status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accounts.map((account) => (
-                    <tr key={account.id}>
-                      <td>{account.name}</td>
-                      <td>
-                        {account.roles
-                          .map(({ role }) => roleNames[role])
-                          .join(', ') || 'No active role'}
-                      </td>
-                      <td>{account.active ? 'Active' : 'Inactive'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {view === 'profile' && (
-            <dl className="panel profile">
-              <div>
-                <dt>Name</dt>
-                <dd>{user.name}</dd>
-              </div>
-              <div>
-                <dt>Active roles</dt>
-                <dd>{role}</dd>
-              </div>
-              <div>
-                <dt>Environment</dt>
-                <dd>Synthetic demonstration</dd>
-              </div>
-            </dl>
-          )}
-        </main>
-        <footer className="workspace-footer">
-          PlacementBridge · Independent academic prototype
-        </footer>
+        {officer && ['overview', 'announcements'].includes(view) && (
+          <Link className="button" href={viewUrl('compose')}>
+            New announcement
+          </Link>
+        )}
       </div>
-    </div>
+      {message && (
+        <p className="feedback" role="status">
+          {message}
+        </p>
+      )}
+      {params.error && view !== 'profile' && (
+        <p className="feedback error" role="alert">
+          The change could not be saved. Check the notice status and try again.
+        </p>
+      )}
+      {browsingNotices && (
+        <form
+          className="notice-controls"
+          action="/portal"
+          role="search"
+          key={`${view}:${query}`}
+        >
+          <input type="hidden" name="view" value={view} />
+          <div className="notice-query">
+            <label htmlFor="notice-query">Search notices</label>
+            <input
+              id="notice-query"
+              name="q"
+              type="search"
+              maxLength={120}
+              defaultValue={query}
+              placeholder="Title, summary, or source"
+            />
+          </div>
+          <button className="button outline">Search</button>
+          {query && (
+            <Link className="button outline" href={viewUrl(view)}>
+              Clear search
+            </Link>
+          )}
+        </form>
+      )}
+      <div className={counts ? 'overview-grid' : undefined}>
+        {list && (
+          <section
+            className="notice-list"
+            aria-label={listTitle ?? labels[view]}
+          >
+            {listTitle && (
+              <div className="list-heading">
+                <h2>{listTitle}</h2>
+                <Link className="text-link" href={viewUrl('announcements')}>
+                  View all →
+                </Link>
+              </div>
+            )}
+            {params.notice && view !== 'overview' && (
+              <Link className="text-link" href={viewUrl(view)}>
+                ← Back to{' '}
+                {view === 'corrections' ? 'corrections' : 'announcements'}
+              </Link>
+            )}
+            {items.length === 0 ? (
+              <p className="panel empty">
+                {query
+                  ? 'No notices match your search.'
+                  : view === 'review'
+                    ? 'No notices currently need your review or publication.'
+                    : view === 'corrections'
+                      ? 'No published corrections found.'
+                      : 'No notices found.'}
+              </p>
+            ) : (
+              items.map((item) => (
+                <NoticeCard
+                  key={item.id}
+                  item={item}
+                  officer={officer}
+                  userId={user.id}
+                  view={view}
+                  publishedBy={
+                    publishers.find(
+                      (publisher) => publisher.id === item.publishedById,
+                    )?.name
+                  }
+                />
+              ))
+            )}
+            {browsingNotices && (page > 1 || hasMore) && (
+              <nav className="pagination" aria-label="Notice pages">
+                {page > 1 ? (
+                  <Link className="text-link" href={pageUrl(page - 1)}>
+                    Previous
+                  </Link>
+                ) : (
+                  <span />
+                )}
+                <span>Page {page}</span>
+                {hasMore ? (
+                  <Link className="text-link" href={pageUrl(page + 1)}>
+                    Next
+                  </Link>
+                ) : (
+                  <span />
+                )}
+              </nav>
+            )}
+          </section>
+        )}
+        {view === 'overview' && counts && (
+          <section className="metrics" aria-label="Workspace summary">
+            <h2>Workspace summary</h2>
+            <Link href={viewUrl('announcements')}>
+              <span>Published notices</span>
+              <strong>{counts[0]}</strong>
+            </Link>
+            <Link href={viewUrl('corrections')}>
+              <span>Published corrections</span>
+              <strong>{counts[1]}</strong>
+            </Link>
+            {officer && (
+              <Link href={viewUrl('review')}>
+                <span>Review queue</span>
+                <strong>{counts[2]}</strong>
+              </Link>
+            )}
+          </section>
+        )}
+      </div>
+      {view === 'compose' &&
+        (params.correction && !target ? (
+          <div className="panel empty">
+            <p>This notice is unavailable for correction.</p>
+            <Link className="text-link" href={viewUrl('announcements')}>
+              Back to announcements →
+            </Link>
+          </div>
+        ) : (
+          <Composer target={target} />
+        ))}
+      {(view === 'cases' || (view === 'overview' && !reader && reviewer)) && (
+        <section className="panel empty">
+          <h2>Confidential case workspace</h2>
+          <p>
+            Case handling is disabled in this prototype. No confidential records
+            are collected.
+          </p>
+        </section>
+      )}
+      {view === 'overview' && !reader && admin && (
+        <section className="panel empty">
+          <h2>Platform administration</h2>
+          <p>Review synthetic accounts and their active roles.</p>
+          <Link className="text-link" href={viewUrl('accounts')}>
+            View accounts →
+          </Link>
+        </section>
+      )}
+      {view === 'accounts' && (
+        <div className="panel table-wrap">
+          <table>
+            <caption>Synthetic accounts · showing up to 100</caption>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Roles</th>
+                <th scope="col">Account status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((account) => (
+                <tr key={account.id}>
+                  <td>{account.name}</td>
+                  <td>
+                    {account.roles
+                      .map(({ role }) => roleNames[role])
+                      .join(', ') || 'No active role'}
+                  </td>
+                  <td>{account.active ? 'Active' : 'Inactive'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {view === 'profile' && (
+        <Profile
+          account={user}
+          role={role}
+          pages={startPages}
+          saved={params.result === 'profile-saved'}
+          error={params.error}
+        />
+      )}
+    </WorkspaceFrame>
   );
 }

@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 const config: NextConfig = {
   outputFileTracingRoot: __dirname,
   devIndicators: false,
+  poweredByHeader: false,
   async headers() {
     return [
       {
