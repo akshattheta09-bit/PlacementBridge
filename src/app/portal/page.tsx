@@ -91,6 +91,12 @@ function NoticeCard({
       </div>
       <h3>{item.title}</h3>
       <p className="notice-summary">{item.summary}</p>
+      {item.publishedAt && (
+        <p className="notice-byline">
+          {item.publisherName ?? publishedBy ?? 'Demonstration officer'} ·{' '}
+          {item.source}
+        </p>
+      )}
       {item.correctionOf && (
         <dl className="correction-note">
           <div>
@@ -272,21 +278,19 @@ export default async function Portal({
   const reader = can(user.roles, 'announcement.read');
   const reviewer = can(user.roles, 'reviewer.enter');
   const admin = can(user.roles, 'admin.enter');
-  const nav: { view: View; label: string; mark: string }[] = [
-    { view: 'overview', label: 'Overview', mark: '▦' },
+  const nav: { view: View; label: string }[] = [
+    { view: 'overview', label: 'Overview' },
   ];
-  if (reader)
-    nav.push({ view: 'announcements', label: 'Announcements', mark: '≡' });
-  if (reader)
-    nav.push({ view: 'corrections', label: 'Corrections', mark: '↺' });
+  if (reader) nav.push({ view: 'announcements', label: 'Announcements' });
+  if (reader) nav.push({ view: 'corrections', label: 'Corrections' });
   if (officer)
     nav.push(
-      { view: 'review', label: 'Review queue', mark: '✓' },
-      { view: 'compose', label: 'New announcement', mark: '+' },
+      { view: 'review', label: 'Review queue' },
+      { view: 'compose', label: 'New announcement' },
     );
-  if (reviewer) nav.push({ view: 'cases', label: 'Assigned cases', mark: '□' });
-  if (admin) nav.push({ view: 'accounts', label: 'Accounts', mark: '⊞' });
-  nav.push({ view: 'profile', label: 'My profile', mark: '○' });
+  if (reviewer) nav.push({ view: 'cases', label: 'Assigned cases' });
+  if (admin) nav.push({ view: 'accounts', label: 'Accounts' });
+  nav.push({ view: 'profile', label: 'My profile' });
 
   const view =
     nav.find(
@@ -414,15 +418,12 @@ export default async function Portal({
         <Brand />
         <div className="sidebar-role">{role}</div>
         <nav className="workspace-nav" aria-label="Workspace">
-          {nav.map(({ view: destination, label, mark }) => (
+          {nav.map(({ view: destination, label }) => (
             <Link
               key={destination}
               href={viewUrl(destination)}
               aria-current={view === destination ? 'page' : undefined}
             >
-              <span className="nav-mark" aria-hidden="true">
-                {mark}
-              </span>
               {label}
             </Link>
           ))}
@@ -454,9 +455,7 @@ export default async function Portal({
             Workspace <span aria-hidden="true">/</span>{' '}
             <strong>{labels[view]}</strong>
           </span>
-          <span className="demo-label">
-            <span className="dot" /> Synthetic demo
-          </span>
+          <span className="demo-label">Synthetic demo</span>
         </div>
         <main className="workspace-main" id="main-content">
           <div className="page-heading">
@@ -466,7 +465,7 @@ export default async function Portal({
             </div>
             {officer && ['overview', 'announcements'].includes(view) && (
               <Link className="button" href={viewUrl('compose')}>
-                New announcement <span aria-hidden="true">+</span>
+                New announcement
               </Link>
             )}
           </div>
@@ -481,72 +480,72 @@ export default async function Portal({
               again.
             </p>
           )}
-          {view === 'overview' && counts && (
-            <div className="metrics">
-              <Link href={viewUrl('announcements')}>
-                <span>Published notices</span>
-                <strong>{counts[0]}</strong>
-                <span aria-hidden="true">↗</span>
-              </Link>
-              <Link href={viewUrl('corrections')}>
-                <span>Published corrections</span>
-                <strong>{counts[1]}</strong>
-                <span aria-hidden="true">↗</span>
-              </Link>
-              {officer && (
-                <Link href={viewUrl('review')}>
-                  <span>Review queue</span>
-                  <strong>{counts[2]}</strong>
-                  <span aria-hidden="true">↗</span>
-                </Link>
-              )}
-            </div>
-          )}
-          {list && (
-            <section
-              className="notice-list"
-              aria-label={listTitle ?? labels[view]}
-            >
-              {listTitle && (
-                <div className="list-heading">
-                  <h2>{listTitle}</h2>
-                  <Link className="text-link" href={viewUrl('announcements')}>
-                    View all →
+          <div className={counts ? 'overview-grid' : undefined}>
+            {list && (
+              <section
+                className="notice-list"
+                aria-label={listTitle ?? labels[view]}
+              >
+                {listTitle && (
+                  <div className="list-heading">
+                    <h2>{listTitle}</h2>
+                    <Link className="text-link" href={viewUrl('announcements')}>
+                      View all →
+                    </Link>
+                  </div>
+                )}
+                {params.notice && view !== 'overview' && (
+                  <Link className="text-link" href={viewUrl(view)}>
+                    ← Back to{' '}
+                    {view === 'corrections' ? 'corrections' : 'announcements'}
                   </Link>
-                </div>
-              )}
-              {params.notice && view !== 'overview' && (
-                <Link className="text-link" href={viewUrl(view)}>
-                  ← Back to{' '}
-                  {view === 'corrections' ? 'corrections' : 'announcements'}
+                )}
+                {items.length === 0 ? (
+                  <p className="panel empty">
+                    {view === 'review'
+                      ? 'No notices currently need your review or publication.'
+                      : view === 'corrections'
+                        ? 'No published corrections found.'
+                        : 'No notices found.'}
+                  </p>
+                ) : (
+                  items.map((item) => (
+                    <NoticeCard
+                      key={item.id}
+                      item={item}
+                      officer={officer}
+                      userId={user.id}
+                      view={view}
+                      publishedBy={
+                        publishers.find(
+                          (publisher) => publisher.id === item.publishedById,
+                        )?.name
+                      }
+                    />
+                  ))
+                )}
+              </section>
+            )}
+            {view === 'overview' && counts && (
+              <section className="metrics" aria-label="Workspace summary">
+                <h2>Workspace summary</h2>
+                <Link href={viewUrl('announcements')}>
+                  <span>Published notices</span>
+                  <strong>{counts[0]}</strong>
                 </Link>
-              )}
-              {items.length === 0 ? (
-                <p className="panel empty">
-                  {view === 'review'
-                    ? 'No notices currently need your review or publication.'
-                    : view === 'corrections'
-                      ? 'No published corrections found.'
-                      : 'No notices found.'}
-                </p>
-              ) : (
-                items.map((item) => (
-                  <NoticeCard
-                    key={item.id}
-                    item={item}
-                    officer={officer}
-                    userId={user.id}
-                    view={view}
-                    publishedBy={
-                      publishers.find(
-                        (publisher) => publisher.id === item.publishedById,
-                      )?.name
-                    }
-                  />
-                ))
-              )}
-            </section>
-          )}
+                <Link href={viewUrl('corrections')}>
+                  <span>Published corrections</span>
+                  <strong>{counts[1]}</strong>
+                </Link>
+                {officer && (
+                  <Link href={viewUrl('review')}>
+                    <span>Review queue</span>
+                    <strong>{counts[2]}</strong>
+                  </Link>
+                )}
+              </section>
+            )}
+          </div>
           {view === 'compose' &&
             (params.correction && !target ? (
               <div className="panel empty">

@@ -59,16 +59,11 @@ export default async function Login({
         </Link>
       </header>
       <main className="login-shell" id="main-content">
-        <div className="login-context">
-          <p className="kicker">Academic prototype</p>
-          <h1>Placement workspace</h1>
-          <p>
-            Use a synthetic account to read placement notices or try the officer
-            review workflow.
-          </p>
-        </div>
         <section className="login-panel">
-          <h2>Sign in</h2>
+          <h1>Sign in to PlacementBridge</h1>
+          <p className="login-description">
+            Use your local demo account to access the placement workspace.
+          </p>
           {error && (
             <p className="feedback error" role="alert">
               Sign-in failed. Check your demo credentials.
@@ -100,7 +95,16 @@ export default async function Login({
             />
             <button className="button">Sign in</button>
           </form>
-          {(await localDemoEnabled()) && (
+        </section>
+        {(await localDemoEnabled()) && (
+          <aside
+            className="login-panel demo-panel"
+            aria-labelledby="demo-accounts"
+          >
+            <h2 id="demo-accounts">Demo accounts</h2>
+            <p className="login-description">
+              Choose a role to sign in with a synthetic account.
+            </p>
             <form
               className="demo-picker"
               action={async (data) => {
@@ -113,22 +117,22 @@ export default async function Login({
                 await authenticate(account[1], process.env.DEMO_PASSWORD!);
               }}
             >
-              <h3>Try a demo account</h3>
               <div>
                 {demoAccounts.map(([label, email]) => (
                   <button
                     key={email}
-                    className="button outline"
+                    className="demo-account"
                     name="account"
                     value={email}
                   >
-                    {label}
+                    <span>{label}</span>
+                    <small>{email}</small>
                   </button>
                 ))}
               </div>
             </form>
-          )}
-        </section>
+          </aside>
+        )}
       </main>
     </div>
   );
