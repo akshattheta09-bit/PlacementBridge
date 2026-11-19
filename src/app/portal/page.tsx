@@ -15,7 +15,7 @@ import { WorkspaceFrame } from './workspace-frame';
 import { change, create } from './actions';
 
 const relations = {
-  correction: { select: { id: true, status: true } },
+  correction: { select: { id: true, status: true, fixtureArchived: true } },
   correctionOf: { select: { id: true, title: true } },
 } satisfies Prisma.AnnouncementInclude;
 
@@ -43,25 +43,59 @@ const feedback = {
   published: 'Notice published to the student bulletin.',
 };
 
+function noticeStatus(item: Notice) {
+  if (
+    item.correction?.status === 'PUBLISHED' &&
+    !item.correction.fixtureArchived
+  )
+    return 'Superseded';
+  if (item.status === 'PUBLISHED' && item.correctionOf) return 'Correction';
+  return statuses[item.status];
+}
+
+function BulletinRow({ item }: { item: Notice }) {
+  const url = viewUrl(item.correctionOf ? 'corrections' : 'announcements');
+  const timestamp = item.publishedAt ?? item.createdAt;
+  return (
+    <li>
+      <Link className="bulletin-row" href={`${url}&notice=${item.id}`}>
+        <time dateTime={timestamp.toISOString()}>{date.format(timestamp)}</time>
+        <div className="bulletin-row-body">
+          <h3>{item.title}</h3>
+          <p>{item.summary}</p>
+        </div>
+        <span
+          className={
+            item.correctionOf ? 'record-kind is-correction' : 'record-kind'
+          }
+        >
+          {item.correctionOf ? 'Correction' : 'Notice'}
+        </span>
+        <span className="bulletin-row-arrow" aria-hidden="true">
+          →
+        </span>
+      </Link>
+    </li>
+  );
+}
+
 function NoticeCard({
   item,
   officer,
   userId,
   publishedBy,
   view,
+  detail,
 }: {
   item: Notice;
   officer: boolean;
   userId: string;
   publishedBy?: string;
   view: View;
+  detail: boolean;
 }) {
-  const superseded = item.correction?.status === 'PUBLISHED';
-  const status = superseded
-    ? 'Superseded'
-    : item.status === 'PUBLISHED' && item.correctionOf
-      ? 'Official correction'
-      : statuses[item.status];
+  const status = noticeStatus(item);
+  const superseded = status === 'Superseded';
   const action = !officer
     ? null
     : item.status === 'DRAFT' && item.createdById === userId
@@ -83,42 +117,13 @@ function NoticeCard({
           {date.format(item.publishedAt ?? item.createdAt)}
         </time>
       </div>
-      <h3>{item.title}</h3>
+      {!detail && <h3>{item.title}</h3>}
       <p className="notice-summary">{item.summary}</p>
       {item.publishedAt && (
         <p className="notice-byline">
           {item.publisherName ?? publishedBy ?? 'Demonstration officer'} ·{' '}
           {item.source}
         </p>
-      )}
-      {item.correctionOf && (
-        <dl className="correction-note">
-          <div>
-            <dt>Corrects</dt>
-            <dd>
-              <Link
-                className="text-link"
-                href={`/portal?view=announcements&notice=${item.correctionOf.id}#notice-${item.correctionOf.id}`}
-              >
-                {item.correctionOf.title}
-              </Link>
-            </dd>
-          </div>
-          <div>
-            <dt>Reason</dt>
-            <dd>{item.changeReason}</dd>
-          </div>
-          <div>
-            <dt>Student action</dt>
-            <dd>{item.studentAction}</dd>
-          </div>
-          {item.effectiveAt && (
-            <div>
-              <dt>Effective</dt>
-              <dd>{date.format(item.effectiveAt)} IST</dd>
-            </div>
-          )}
-        </dl>
       )}
       {superseded && (
         <Link
@@ -128,8 +133,37 @@ function NoticeCard({
           Read the correction →
         </Link>
       )}
-      <details className="notice-details" open={officer}>
+      <details className="notice-details" open={detail || view === 'review'}>
         <summary>Full notice and source</summary>
+        {item.correctionOf && (
+          <dl className="correction-note">
+            <div>
+              <dt>Corrects</dt>
+              <dd>
+                <Link
+                  className="text-link"
+                  href={`/portal?view=announcements&notice=${item.correctionOf.id}#notice-${item.correctionOf.id}`}
+                >
+                  {item.correctionOf.title}
+                </Link>
+              </dd>
+            </div>
+            <div>
+              <dt>Reason</dt>
+              <dd>{item.changeReason}</dd>
+            </div>
+            <div>
+              <dt>Student action</dt>
+              <dd>{item.studentAction}</dd>
+            </div>
+            {item.effectiveAt && (
+              <div>
+                <dt>Effective</dt>
+                <dd>{date.format(item.effectiveAt)} IST</dd>
+              </div>
+            )}
+          </dl>
+        )}
         <p className="notice-content">{item.content}</p>
         <div className="notice-source">
           <div>
@@ -296,9 +330,10 @@ export default async function Portal({
         (params.view ?? (params.correction ? 'compose' : 'overview')),
     )?.view ?? 'overview';
   const scope = { institutionId: user.institutionId };
-  const published = { ...scope, status: 'PUBLISHED' as const };
+  const activeNotices = { ...scope, fixtureArchived: false };
+  const published = { ...activeNotices, status: 'PUBLISHED' as const };
   const reviewQueue: Prisma.AnnouncementWhereInput = {
-    ...scope,
+    ...activeNotices,
     OR: [
       { status: 'PENDING_REVIEW', createdById: { not: user.id } },
       { status: 'APPROVED' },
@@ -310,12 +345,28 @@ export default async function Portal({
       : view === 'corrections'
         ? { ...published, correctionOfId: { not: null } }
         : view === 'announcements' && officer
-          ? scope
-          : published;
+          ? activeNotices
+          : view === 'overview'
+            ? {
+                ...published,
+                NOT: {
+                  correction: {
+                    is: { status: 'PUBLISHED', fixtureArchived: false },
+                  },
+                },
+              }
+            : published;
   const list =
     reader &&
     ['overview', 'announcements', 'review', 'corrections'].includes(view);
-  const browsingNotices = list && view !== 'overview' && !params.notice;
+  const noticeId =
+    (view === 'announcements' || view === 'corrections') &&
+    typeof params.notice === 'string'
+      ? params.notice
+      : undefined;
+  const correctionId =
+    typeof params.correction === 'string' ? params.correction : undefined;
+  const browsingNotices = list && view !== 'overview' && !noticeId;
   const query =
     browsingNotices && typeof params.q === 'string'
       ? params.q.trim().slice(0, 120)
@@ -348,13 +399,10 @@ export default async function Portal({
         ],
       }
     : where;
-  const [results, counts, target, accounts] = await Promise.all([
+  const [results, reviewCount, target, accounts] = await Promise.all([
     list
       ? db.announcement.findMany({
-          where:
-            params.notice && view !== 'overview' && view !== 'review'
-              ? { ...where, id: params.notice }
-              : filters,
+          where: noticeId ? { ...where, id: noticeId } : filters,
           include: relations,
           orderBy: [
             { publishedAt: { sort: 'desc', nulls: 'first' } },
@@ -362,23 +410,15 @@ export default async function Portal({
             { id: 'asc' },
           ],
           skip: browsingNotices ? (page - 1) * pageSize : 0,
-          take: browsingNotices ? pageSize + 1 : view === 'overview' ? 3 : 1,
+          take: browsingNotices ? pageSize + 1 : view === 'overview' ? 5 : 1,
         })
       : [],
-    reader && view === 'overview'
-      ? Promise.all([
-          db.announcement.count({ where: published }),
-          db.announcement.count({
-            where: { ...published, correctionOfId: { not: null } },
-          }),
-          officer
-            ? db.announcement.count({ where: reviewQueue })
-            : Promise.resolve(0),
-        ])
+    officer && view === 'overview'
+      ? db.announcement.count({ where: reviewQueue })
       : null,
-    officer && view === 'compose' && params.correction
+    officer && view === 'compose' && correctionId
       ? db.announcement.findFirst({
-          where: { ...published, id: params.correction, correction: null },
+          where: { ...published, id: correctionId, correction: null },
           select: { id: true, title: true },
         })
       : null,
@@ -405,9 +445,13 @@ export default async function Portal({
   const hasMore =
     browsingNotices && results.length > pageSize && page < maxPage;
   const items = browsingNotices ? results.slice(0, pageSize) : results;
-  const legacyIds = items.flatMap((item) =>
-    item.publishedById && !item.publisherName ? [item.publishedById] : [],
-  );
+  const detailTitle = noticeId ? items[0]?.title : undefined;
+  const legacyIds =
+    view === 'overview'
+      ? []
+      : items.flatMap((item) =>
+          item.publishedById && !item.publisherName ? [item.publishedById] : [],
+        );
   const publishers = legacyIds.length
     ? await db.user.findMany({
         where: { ...scope, id: { in: legacyIds } },
@@ -428,7 +472,6 @@ export default async function Portal({
     profile: 'My profile',
   };
   const descriptions: Partial<Record<View, string>> = {
-    overview: 'Read the latest placement notices and published corrections.',
     profile: 'Review your account details and personalize your workspace.',
     announcements: officer
       ? 'Draft, review and publish notices for students.'
@@ -442,8 +485,7 @@ export default async function Portal({
     params.result && Object.hasOwn(feedback, params.result)
       ? feedback[params.result as keyof typeof feedback]
       : null;
-  const listTitle =
-    view === 'overview' ? 'Latest official announcements' : null;
+  const listTitle = view === 'overview' ? 'Latest updates' : null;
 
   return (
     <WorkspaceFrame
@@ -459,24 +501,36 @@ export default async function Portal({
     >
       <div
         className={
-          view === 'overview'
-            ? 'page-heading workspace-welcome'
-            : 'page-heading'
+          view === 'overview' ? 'page-heading bulletin-heading' : 'page-heading'
         }
       >
         <div>
-          {view === 'overview' && <p className="kicker">{role} workspace</p>}
           <h1>
             {view === 'overview'
-              ? `Welcome, ${user.preferredName ?? user.name.split(' ')[0]}`
-              : labels[view]}
+              ? officer
+                ? 'Publication desk'
+                : reader
+                  ? 'Placement bulletin'
+                  : 'Overview'
+              : (detailTitle ?? labels[view])}
           </h1>
-          {descriptions[view] && <p>{descriptions[view]}</p>}
+          {view === 'overview' && <p>Signed in as {displayName}</p>}
+          {!noticeId && descriptions[view] && <p>{descriptions[view]}</p>}
         </div>
         {officer && ['overview', 'announcements'].includes(view) && (
-          <Link className="button" href={viewUrl('compose')}>
-            New announcement
-          </Link>
+          <div className="desk-actions">
+            {reviewCount !== null && (
+              <Link className="button outline" href={viewUrl('review')}>
+                Review queue{' '}
+                {reviewCount > 0 && (
+                  <span className="queue-count">{reviewCount}</span>
+                )}
+              </Link>
+            )}
+            <Link className="button" href={viewUrl('compose')}>
+              New announcement
+            </Link>
+          </div>
         )}
       </div>
       {message && (
@@ -516,7 +570,7 @@ export default async function Portal({
           )}
         </form>
       )}
-      <div className={counts ? 'overview-grid' : undefined}>
+      <div>
         {list && (
           <section
             className="notice-list"
@@ -530,7 +584,7 @@ export default async function Portal({
                 </Link>
               </div>
             )}
-            {params.notice && view !== 'overview' && (
+            {noticeId && (
               <Link className="text-link" href={viewUrl(view)}>
                 ← Back to{' '}
                 {view === 'corrections' ? 'corrections' : 'announcements'}
@@ -546,6 +600,12 @@ export default async function Portal({
                       ? 'No published corrections found.'
                       : 'No notices found.'}
               </p>
+            ) : view === 'overview' ? (
+              <ul className="bulletin-rows">
+                {items.map((item) => (
+                  <BulletinRow key={item.id} item={item} />
+                ))}
+              </ul>
             ) : (
               items.map((item) => (
                 <NoticeCard
@@ -554,6 +614,7 @@ export default async function Portal({
                   officer={officer}
                   userId={user.id}
                   view={view}
+                  detail={Boolean(noticeId)}
                   publishedBy={
                     publishers.find(
                       (publisher) => publisher.id === item.publishedById,
@@ -583,28 +644,9 @@ export default async function Portal({
             )}
           </section>
         )}
-        {view === 'overview' && counts && (
-          <section className="metrics" aria-label="Workspace summary">
-            <h2>Workspace summary</h2>
-            <Link href={viewUrl('announcements')}>
-              <span>Published notices</span>
-              <strong>{counts[0]}</strong>
-            </Link>
-            <Link href={viewUrl('corrections')}>
-              <span>Published corrections</span>
-              <strong>{counts[1]}</strong>
-            </Link>
-            {officer && (
-              <Link href={viewUrl('review')}>
-                <span>Review queue</span>
-                <strong>{counts[2]}</strong>
-              </Link>
-            )}
-          </section>
-        )}
       </div>
       {view === 'compose' &&
-        (params.correction && !target ? (
+        (correctionId && !target ? (
           <div className="panel empty">
             <p>This notice is unavailable for correction.</p>
             <Link className="text-link" href={viewUrl('announcements')}>

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { hash } from 'bcryptjs';
+import { demoCorrection, demoNotice } from '../src/lib/demo-bulletin';
 
 const db = new PrismaClient();
 const accounts = [
@@ -60,17 +61,14 @@ async function main() {
     const approver = seeded.get(accounts[2][0])!;
     const samples = [
       {
-        id: 'a0010000-0000-4000-8000-000000000001',
-        title: 'Interview practice session moved',
-        summary: 'The demo practice session now starts at 2:00 pm IST.',
+        ...demoNotice,
         content:
-          'Students who planned to attend can use the updated time. This synthetic exercise does not correspond to an actual university event.',
-        source: 'Synthetic training memo PB-01',
+          'Use the revised start time if you plan to attend. The time is shown in IST.',
         status: 'PUBLISHED' as const,
         approvedById: approver,
         publishedById: approver,
         publisherName: accounts[2][1],
-        publishedAt: new Date('2026-11-18T05:00:00Z'),
+        publishedAt: new Date(demoNotice.publishedAt),
       },
       {
         id: 'a0010000-0000-4000-8000-000000000002',
@@ -81,6 +79,34 @@ async function main() {
           'The fictional clinic will open for check-in 15 minutes before the practice session. This is sample content for the independent officer review workflow.',
         source: 'Synthetic training memo PB-02',
         status: 'PENDING_REVIEW' as const,
+      },
+      {
+        id: 'a0010000-0000-4000-8000-000000000004',
+        title: 'Placement briefing room confirmed',
+        summary:
+          'The preparation briefing will be held in Seminar Room 2 at 10:00 am IST.',
+        content:
+          'Arrive ten minutes before the briefing. The session covers how placement notices and schedule changes are communicated.',
+        source: 'Synthetic placement office memo PB-03',
+        status: 'PUBLISHED' as const,
+        approvedById: approver,
+        publishedById: approver,
+        publisherName: accounts[2][1],
+        publishedAt: new Date('2026-11-18T08:00:00Z'),
+      },
+      {
+        id: 'a0010000-0000-4000-8000-000000000005',
+        title: 'Practice assessment: what to bring',
+        summary:
+          'Bring a charged laptop and your own headphones to the practice assessment.',
+        content:
+          'A sample sign-in exercise will take place before the timed practice. The exercise is for preparation only and does not affect eligibility.',
+        source: 'Synthetic preparation circular PB-04',
+        status: 'PUBLISHED' as const,
+        approvedById: approver,
+        publishedById: approver,
+        publisherName: accounts[2][1],
+        publishedAt: new Date('2026-11-17T08:00:00Z'),
       },
     ];
     for (const sample of samples) {
@@ -97,6 +123,38 @@ async function main() {
           ...sample,
           institutionId: institution.id,
           createdById: officer,
+        },
+      });
+    }
+    const original = await tx.announcement.findUniqueOrThrow({
+      where: { id: demoNotice.id },
+      select: {
+        correction: { select: { id: true } },
+        status: true,
+        title: true,
+      },
+    });
+    if (
+      !original.correction &&
+      original.status === 'PUBLISHED' &&
+      original.title === demoNotice.title
+    ) {
+      await tx.announcement.upsert({
+        where: { id: demoCorrection.id },
+        update: {},
+        create: {
+          ...demoCorrection,
+          status: 'PUBLISHED',
+          institutionId: institution.id,
+          createdById: officer,
+          approvedById: approver,
+          publishedById: approver,
+          publisherName: accounts[2][1],
+          correctionOfId: demoNotice.id,
+          content:
+            'The session will use the meeting link in the original practice invitation. The 2:00 pm IST start time is unchanged.',
+          publishedAt: new Date(demoCorrection.publishedAt),
+          effectiveAt: new Date(demoCorrection.effectiveAt),
         },
       });
     }

@@ -38,6 +38,7 @@ export async function createAnnouncement(
           id: revision.correctionOfId,
           institutionId: actor.institutionId,
           status: 'PUBLISHED',
+          fixtureArchived: false,
           correction: null,
         },
         select: { id: true },
@@ -78,7 +79,7 @@ export async function transition(
 ) {
   return db.$transaction(async (tx) => {
     const item = await tx.announcement.findFirst({
-      where: { id, institutionId: actor.institutionId },
+      where: { id, institutionId: actor.institutionId, fixtureArchived: false },
     });
     if (!item) throw new Error('Resource unavailable');
     assertTransition(
@@ -100,7 +101,12 @@ export async function transition(
               publishedAt: new Date(),
             };
     const updated = await tx.announcement.updateMany({
-      where: { id, institutionId: actor.institutionId, status: item.status },
+      where: {
+        id,
+        institutionId: actor.institutionId,
+        status: item.status,
+        fixtureArchived: false,
+      },
       data,
     });
     if (updated.count !== 1) throw new Error('Announcement changed; retry');

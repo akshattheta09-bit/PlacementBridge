@@ -89,7 +89,12 @@ async function login(role, expected) {
   return client;
 }
 const guest = session();
-assert.equal((await guest.request('/')).status, 200);
+const landing = await guest.request('/');
+assert.equal(landing.status, 200);
+assert.match(
+  landing.html('#sample').text(),
+  /Interview practice will be held online/,
+);
 assert.equal((await guest.request('/portal')).location, '/login');
 const officer = await login('officer', /Announcement workspace/);
 const approver = await login('approver', /Review queue/);
@@ -143,7 +148,7 @@ try {
     '/portal?view=corrections',
   );
   assert.match(
-    (await returningStudent.request('/portal')).html('h1').text(),
+    (await returningStudent.request('/portal')).html('.page-heading').text(),
     /Avery Preview/,
   );
 
@@ -251,6 +256,19 @@ const corrections = (await student.request('/portal?view=corrections')).html;
 assert.match(corrections('main h1').text(), /Published corrections/);
 assert.equal(card(corrections, corrected).length, 1);
 assert.equal(card(corrections, title).length, 0);
+const detailId = card(corrections, corrected)
+  .attr('id')
+  .slice('notice-'.length);
+const detail = (
+  await student.request('/portal?view=corrections&notice=' + detailId)
+).html;
+assert.equal(detail('main h1').text(), corrected);
+assert.match(detail('details[open]').text(), /No action required/);
+assert.match(
+  detail('details[open] .correction-note a').attr('href'),
+  /view=announcements&notice=/,
+);
+
 assert.match(card(feed, title).text(), /Superseded/);
 assert.match(card(feed, corrected).text(), /No action required/);
 await student.form(announcements, ($) => $('#workspace-sidebar form'), {});

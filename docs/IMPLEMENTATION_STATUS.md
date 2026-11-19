@@ -12,8 +12,8 @@ Last updated: 2026-11-20.
 
 The correction migration adds optional fields and an institution-scoped link to the prior announcement. Existing published notices remain readable. The new publisher snapshot applies to future publications. The student feed shows a bounded list of recent notices and corrections.
 
-## Illustrative welcome image
+## Bulletin preview and test data
 
-`public/campus-welcome.webp` was made with the built-in ImageGen tool and optimized for the welcome page. It depicts a fictional campus.
+The public example pairs a seeded original notice with a sourced correction. The workspace overview links directly to active published notices and gives officers quick access to review and drafting.
 
-> Editorial campus photograph for PlacementBridge’s welcome page. Three university students with backpacks, seen primarily from the back and mid-distance, walking together toward a contemporary red-brick university library along a shaded colonnade in northern India. Fictional campus. Natural unposed posture, morning light, realistic brick and stone, candid architectural editorial photography. Landscape 4:3 composition, eye-level, deep foreground and campus greenery. Muted terracotta, warm limestone, leaves and dark ink clothing. No signage, text, logos, or identifying institutional features. No headline overlay or UI. Avoid stock-photo posing, over-polished skin, or cinematic haze.
+The fixture migration marks the exact legacy smoke notices as archived fixtures. Their database rows and audit records remain intact. Run future workflow smoke checks against a separate local database and application instance so test notices do not appear in a shared demo.

@@ -62,27 +62,28 @@ model RoleAssignment {
 }
 
 model Announcement {
-  id             String        @id @default(uuid())
-  institutionId  String
-  institution    Institution   @relation(fields: [institutionId], references: [id])
-  createdById    String
-  approvedById   String?
-  publishedById  String?
-  title          String
-  summary        String
-  content        String
-  source         String
-  effectiveAt    DateTime?
-  status         Status        @default(DRAFT)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  publishedAt    DateTime?
-  publisherName  String?
-  correctionOfId String?
-  correctionOf   Announcement? @relation("AnnouncementCorrection", fields: [institutionId, correctionOfId], references: [institutionId, id])
-  correction     Announcement? @relation("AnnouncementCorrection")
-  changeReason   String?
-  studentAction  String?
+  id              String        @id @default(uuid())
+  institutionId   String
+  institution     Institution   @relation(fields: [institutionId], references: [id])
+  createdById     String
+  approvedById    String?
+  publishedById   String?
+  title           String
+  summary         String
+  content         String
+  source          String
+  effectiveAt     DateTime?
+  status          Status        @default(DRAFT)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  publishedAt     DateTime?
+  publisherName   String?
+  fixtureArchived Boolean       @default(false)
+  correctionOfId  String?
+  correctionOf    Announcement? @relation("AnnouncementCorrection", fields: [institutionId, correctionOfId], references: [institutionId, id])
+  correction      Announcement? @relation("AnnouncementCorrection")
+  changeReason    String?
+  studentAction   String?
 
   @@unique([institutionId, id])
   @@unique([institutionId, correctionOfId])

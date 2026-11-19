@@ -170,8 +170,11 @@ export function WorkspaceFrame({
             >
               <span className="menu-icon" aria-hidden="true" />
             </button>
+            <div className="toolbar-wordmark">
+              <Brand />
+            </div>
             <span className="workspace-breadcrumb">
-              <span>Workspace / </span>
+              <span> / </span>
               <strong>{title}</strong>
             </span>
           </div>
