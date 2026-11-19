@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum Role {
+ STUDENT
+ OFFICER
+ REVIEWER
+ ADMIN
+}
+enum Status {
+ DRAFT
+ PENDING_REVIEW
+ APPROVED
+ PUBLISHED
+}
+model Institution {
+ id String @id @default(uuid())
+ name String
+ users User[]
+ announcements Announcement[]
+}
+model User {
+ id String @id @default(uuid())
+ institutionId String
+ institution Institution @relation(fields:[institutionId], references:[id])
+ email String @unique
+ name String
+ passwordHash String
+ active Boolean @default(true)
+ roles RoleAssignment[]
+}
+model RoleAssignment {
+ id String @id @default(uuid())
+ userId String
+ user User @relation(fields:[userId], references:[id])
+ role Role
+ revokedAt DateTime?
+ expiresAt DateTime?
+ @@unique([userId, role])
+}
+model Announcement {
+ id String @id @default(uuid())
+ institutionId String
+ institution Institution @relation(fields:[institutionId], references:[id])
+ createdById String
+ approvedById String?
+ publishedById String?
+ title String
+ summary String
+ content String
+ source String
+ effectiveAt DateTime?
+ status Status @default(DRAFT)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ publishedAt DateTime?
+ @@index([institutionId, status, publishedAt])
+}
+model AuditEvent {
+ id String @id @default(uuid())
+ institutionId String
+ actorId String
+ action String
+ resourceId String
+ createdAt DateTime @default(now())
+}
