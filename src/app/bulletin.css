@@ -77,20 +77,34 @@
   gap: 18px;
   border-bottom: 1px solid #dfdfdc;
 }
-.sample-versions button {
+.sample-versions label span {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
   min-height: 46px;
   padding-inline: 2px;
   border-bottom: 2px solid transparent;
   color: #555c63;
   font-size: 13px;
 }
-.sample-versions button[aria-pressed='true'] {
+.sample-versions input:checked + span {
   border-color: var(--welcome-accent);
   color: var(--welcome-accent);
   font-weight: 650;
 }
-.sample-versions button:hover {
+.sample-versions label:hover span {
   color: var(--welcome-accent);
+}
+.sample-versions input:focus-visible + span {
+  outline: 2px solid var(--welcome-accent);
+  outline-offset: 1px;
+}
+.sample-original,
+.sample-register:has(input[value='original']:checked) .sample-correction {
+  display: none;
+}
+.sample-register:has(input[value='original']:checked) .sample-original {
+  display: block;
 }
 .sample-record {
   padding: clamp(15px, 2.8vw, 25px);
