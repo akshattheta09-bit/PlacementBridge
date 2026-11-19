@@ -26,6 +26,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         });
         if (
           !user?.active ||
+          user.institutionId !== 'demo-institution' ||
           !(await compare(parsed.data.password, user.passwordHash))
         )
           return null;

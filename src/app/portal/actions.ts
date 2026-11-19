@@ -29,10 +29,13 @@ export async function create(form: FormData) {
         : undefined,
     );
   } catch {
-    redirect('/portal?error=create');
+    const correction = form.get('correctionOfId');
+    const params = new URLSearchParams({ view: 'compose', error: 'create' });
+    if (typeof correction === 'string') params.set('correction', correction);
+    redirect(`/portal?${params}`);
   }
   revalidatePath('/portal');
-  redirect('/portal');
+  redirect('/portal?view=announcements&result=created');
 }
 export async function change(form: FormData) {
   const user = await actor();
@@ -43,11 +46,17 @@ export async function change(form: FormData) {
     (action !== 'submit' && action !== 'approve' && action !== 'publish')
   )
     throw new Error('Invalid request');
+  const view = form.get('view') === 'review' ? 'review' : 'announcements';
   try {
     await transition(user, id, action);
   } catch {
-    redirect('/portal?error=transition');
+    redirect(`/portal?view=${view}&error=transition`);
   }
   revalidatePath('/portal');
-  redirect('/portal');
+  const result = {
+    submit: 'submitted',
+    approve: 'approved',
+    publish: 'published',
+  }[action];
+  redirect(`/portal?view=${view}&result=${result}`);
 }

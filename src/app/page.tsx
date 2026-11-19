@@ -1,2 +1,110 @@
 import Link from 'next/link';
-export default function Home(){return <><header className="wrap nav"><Link className="brand" href="/">placement<span>bridge</span><span>·</span></Link><nav className="navlinks"><a href="#why">Why PlacementBridge</a><a href="#how">How it works</a><Link className="button" href="/login">Enter the demo ↗</Link></nav></header><main><div className="wrap hero"><div><div className="eyebrow">A clearer path to your future</div><h1>Your future deserves <em>facts,</em> not rumours.</h1><p className="lead">PlacementBridge brings trustworthy placement information, student experiences and institutional guidance into one accessible space.</p><div className="actions"><Link href="/login" className="button">Explore the demo ↗</Link><a href="#how" className="button light">How it works</a></div><p className="subtle" style={{marginTop:24}}>An independent academic prototype. No institutional endorsement implied.</p></div><div className="hero-card"><div className="paper"><span className="label">✦ &nbsp; Official information · demo</span><h3>Clarity starts with a reliable source.</h3><p className="muted">See who published an update, where it came from, and when it was shared.</p><div className="rule"/><div className="meta">SOURCE &nbsp; Synthetic demonstration authority<br/>STATUS &nbsp; Illustrative example only</div></div><p className="subtle" style={{marginBottom:0}}>Designed for context, accountability and confidence.</p></div></div><section className="section white" id="why"><div className="wrap"><div className="eyebrow">A better foundation</div><h2>Less uncertainty. More room to prepare.</h2><p className="section-intro">Important decisions deserve information you can trace. PlacementBridge is designed to make reliable updates easier to find and easier to understand.</p><div className="grid"><article className="feature"><span className="num">01 / INFORMATION</span><h3>Know the source</h3><p>Official updates follow an approval process and show their publishing authority and source.</p></article><article className="feature"><span className="num">02 / PREPARATION</span><h3>Learn from experience</h3><p>A future home for reviewed, clearly labeled personal experiences and preparation guidance.</p></article><article className="feature"><span className="num">03 / SUPPORT</span><h3>Make space for questions</h3><p>Future pathways for clarification and student support, designed with privacy in mind.</p></article></div></div></section><section className="section" id="how"><div className="wrap"><div className="eyebrow">Built around trust</div><h2>From source to student, with care.</h2><div className="grid"><div><h3>01. Create</h3><p className="muted">An authorized officer prepares an update and identifies its source.</p></div><div><h3>02. Review</h3><p className="muted">A second authorized person reviews the announcement before publication.</p></div><div><h3>03. Share</h3><p className="muted">Students can find published information with clear attribution.</p></div></div></div></section></main><footer className="white footer"><div className="wrap"><strong>PlacementBridge</strong> &nbsp;·&nbsp; Independent academic prototype &nbsp;·&nbsp; Your future deserves facts, not rumours.</div></footer></>}
+import { Brand } from './identity';
+
+export default function Home() {
+  return (
+    <div className="public-site">
+      <header className="site-header container">
+        <Brand />
+        <nav aria-label="Public navigation">
+          <a className="desktop-link" href="#process">
+            How it works
+          </a>
+          <Link className="button outline" href="/login">
+            Sign in <span aria-hidden="true">↗</span>
+          </Link>
+        </nav>
+      </header>
+      <main>
+        <section className="public-hero container">
+          <div className="hero-copy">
+            <p className="kicker">
+              <span className="dot" /> Independent academic prototype
+            </p>
+            <h1>
+              Your future deserves
+              <br className="large-only" /> facts, <em>not rumours.</em>
+            </h1>
+            <p className="hero-description">
+              A placement bulletin that tells you who published an update, where
+              it came from, and what to do if it changes.
+            </p>
+            <div className="hero-actions">
+              <Link className="button" href="/login">
+                Open the workspace <span aria-hidden="true">↗</span>
+              </Link>
+              <a className="text-link" href="#process">
+                See how notices are reviewed <span aria-hidden="true">↓</span>
+              </a>
+            </div>
+          </div>
+          <figure className="bulletin">
+            <div className="bulletin-rail">
+              <span>PLACEMENT BULLETIN</span>
+              <span>SAMPLE NOTICE</span>
+            </div>
+            <div className="bulletin-paper">
+              <div className="bulletin-top">
+                <span className="kicker">Schedule change</span>
+                <span>18 NOV</span>
+              </div>
+              <h2>Interview practice session moved</h2>
+              <p>
+                The demo practice session now starts at 2:00 pm. Students who
+                planned to attend can use the updated time.
+              </p>
+              <dl>
+                <div>
+                  <dt>Source</dt>
+                  <dd>Synthetic training memo PB-01</dd>
+                </div>
+                <div>
+                  <dt>Published by</dt>
+                  <dd>Jordan Approver · Placement officer</dd>
+                </div>
+              </dl>
+              <figcaption>Illustration using synthetic data.</figcaption>
+            </div>
+          </figure>
+        </section>
+        <section className="process" id="process">
+          <div className="container process-inner">
+            <div>
+              <p className="kicker">Publication process</p>
+              <h2>How a notice reaches students</h2>
+            </div>
+            <ol>
+              <li>
+                <strong>Draft</strong>
+                <span>
+                  A placement officer writes a notice and records its source.
+                </span>
+              </li>
+              <li>
+                <strong>Review</strong>
+                <span>
+                  A second officer reviews the notice before it can be
+                  published.
+                </span>
+              </li>
+              <li>
+                <strong>Publish</strong>
+                <span>
+                  Students see the notice, its publisher, and any later
+                  correction.
+                </span>
+              </li>
+            </ol>
+          </div>
+        </section>
+      </main>
+      <footer className="site-footer container">
+        <Brand />
+        <p>
+          Independent academic prototype. Synthetic data only. No institutional
+          endorsement.
+        </p>
+      </footer>
+    </div>
+  );
+}

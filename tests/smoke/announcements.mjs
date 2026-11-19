@@ -58,11 +58,27 @@ function session() {
 }
 async function login(role, expected) {
   const client = session();
-  await client.form('/login', ($) => $('form'), {
+  await client.form('/login', ($) => $('#credentials'), {
     email: role + '@example.test',
     password: process.env.DEMO_PASSWORD,
   });
-  const res = await client.request('/portal');
+  const overview = await client.request('/portal');
+  assert.equal(
+    overview.html('nav [aria-current=page]').text().trim().endsWith('Overview'),
+    true,
+  );
+  const view = {
+    officer: 'announcements',
+    approver: 'review',
+    student: 'announcements',
+    reviewer: 'cases',
+    admin: 'accounts',
+  }[role];
+  const res = await client.request('/portal?view=' + view);
+  assert.equal(
+    res.html('nav [aria-current=page]').attr('href'),
+    '/portal?view=' + view,
+  );
   assert.equal(res.status, 200);
   assert.match(res.html('main').text(), expected);
   return client;
@@ -71,10 +87,38 @@ const guest = session();
 assert.equal((await guest.request('/')).status, 200);
 assert.equal((await guest.request('/portal')).location, '/login');
 const officer = await login('officer', /Announcement workspace/);
-const approver = await login('approver', /Announcement workspace/);
+const approver = await login('approver', /Review queue/);
 const student = await login('student', /Official announcements/);
 await login('reviewer', /Confidential case workspace/);
-await login('admin', /Platform administration/);
+const admin = await login('admin', /Platform administration/);
+assert.match(
+  (await admin.request('/portal?view=accounts')).html('table').text(),
+  /Avery Student/,
+);
+assert.equal(
+  (await student.request('/portal?view=accounts')).html('table').length,
+  0,
+);
+assert.equal(
+  (await student.request('/portal?view=compose')).html('#create').length,
+  0,
+);
+assert.match(
+  (await student.request('/portal?view=profile')).html('main').text(),
+  /Avery Student/,
+);
+
+const demo = session();
+const signIn = await demo.request('/login');
+if (signIn.html('.demo-picker').length) {
+  await demo.form('/login', ($) => $('.demo-picker'), {
+    account: 'student@example.test',
+  });
+  assert.match(
+    (await demo.request('/portal')).html('main').text(),
+    /Avery Student/,
+  );
+}
 const title = 'Synthetic schedule ' + Date.now();
 const corrected = title + ' correction';
 const fields = {
@@ -85,29 +129,41 @@ const fields = {
 };
 const card = ($, name) =>
   $('article').filter((_, el) => $(el).find('h3').text() === name);
-await officer.form('/portal', ($) => $('#create form'), fields);
+const announcements = '/portal?view=announcements';
+const review = '/portal?view=review';
+await officer.form('/portal?view=compose', ($) => $('#create form'), fields);
 async function step(client, name, action) {
-  await client.form('/portal', ($) => card($, name).find('form'), { action });
+  await client.form(
+    action === 'submit' ? announcements : review,
+    ($) => card($, name).find('form'),
+    { action },
+  );
 }
 async function publish(name) {
   await step(officer, name, 'submit');
   assert.equal(
-    card((await officer.request('/portal')).html, name).find(
+    card((await officer.request(announcements)).html, name).find(
       'button[value=approve]',
     ).length,
     0,
   );
-  assert.equal(card((await student.request('/portal')).html, name).length, 0);
+  assert.equal(
+    card((await student.request(announcements)).html, name).length,
+    0,
+  );
   await step(approver, name, 'approve');
   await step(approver, name, 'publish');
 }
 await publish(title);
 assert.match(
-  card((await student.request('/portal')).html, title).text(),
+  card((await student.request(announcements)).html, title).text(),
   /Synthetic memo PB-001.*Published by Jordan Approver/,
 );
-const $ = (await officer.request('/portal')).html;
-const path = card($, title).find('a').attr('href').split('#')[0];
+const $ = (await officer.request(announcements)).html;
+const path = card($, title)
+  .find('a')
+  .filter((_, el) => $(el).text() === 'Draft correction')
+  .attr('href');
 await officer.form(path, ($) => $('#create form'), {
   ...fields,
   title: corrected,
@@ -116,11 +172,14 @@ await officer.form(path, ($) => $('#create form'), {
   effectiveDate: '2026-11-21',
 });
 await publish(corrected);
-const feed = (await student.request('/portal')).html;
-assert.match(feed('main').text(), /Published corrections/);
+const feed = (await student.request(announcements)).html;
+const corrections = (await student.request('/portal?view=corrections')).html;
+assert.match(corrections('main h1').text(), /Published corrections/);
+assert.equal(card(corrections, corrected).length, 1);
+assert.equal(card(corrections, title).length, 0);
 assert.match(card(feed, title).text(), /Superseded/);
 assert.match(card(feed, corrected).text(), /No action required/);
-await student.form('/portal', ($) => $('aside form'), {});
+await student.form(announcements, ($) => $('aside form'), {});
 assert.equal((await student.request('/portal')).location, '/login');
 console.log(
   'HTTP smoke passed: landing, anonymous denial, all four roles, sign-in/out, independent approval, publication and correction visibility.',
