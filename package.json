@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:seed": "node --env-file=.env --import tsx prisma/seed.ts",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:smoke": "node --env-file=.env tests/smoke/announcements.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.2",
@@ -25,6 +26,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "cheerio": "1.2.0",
     "eslint": "8.57.1",
     "eslint-config-next": "15.5.12",
     "prisma": "6.19.2",

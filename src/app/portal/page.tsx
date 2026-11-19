@@ -4,4 +4,351 @@ import { currentUser, signOut } from '@/lib/auth';
 import { can } from '@/lib/permissions';
 import { db } from '@/lib/db';
 import { create, change } from './actions';
-export default async function Portal({searchParams}:{searchParams:Promise<{error?:string}>}) { const user=await currentUser();if(!user)redirect('/login');const params=await searchParams;const officer=can(user.roles,'announcement.create');const student=can(user.roles,'announcement.read');const items= student ? await db.announcement.findMany({where:{institutionId:user.institutionId,...(officer?{}:{status:'PUBLISHED'})},orderBy:{createdAt:'desc'},take:50}):[];const publishers=await db.user.findMany({where:{institutionId:user.institutionId,id:{in:items.flatMap(i=>i.publishedById?[i.publishedById]:[])}},select:{id:true,name:true}});const role=officer?'Placement authority':user.roles.includes('STUDENT')?'Student':user.roles.includes('REVIEWER')?'Grievance reviewer':'Administrator';return <div className="shell"><aside className="sidebar"><Link href="/" className="brand">placement<span>bridge</span>·</Link><small>DEMONSTRATION WORKSPACE</small><a href="#overview">◫ &nbsp; Overview</a>{student&&<a href="#announcements">▤ &nbsp; Announcements</a>}{officer&&<a href="#create">＋ &nbsp; New announcement</a>}<form action={async()=>{'use server';await signOut({redirectTo:'/'});}}><button className="button light" style={{marginTop:30}}>Sign out</button></form></aside><main className="main" id="overview"><div className="top"><div><div className="eyebrow">{role} workspace</div><h1>Welcome, {user.name.split(' ')[0]}.</h1><p className="muted">A clear view of the information that matters.</p></div><span className="pill">Synthetic demonstration</span></div>{params.error&&<div className="card error" role="alert">The action could not be completed. Check your input, permissions, and the current announcement status.</div>}{student?<><div className="card" id="announcements"><div className="top"><div><div className="eyebrow">Information you can trace</div><h2>{officer?'Announcement workspace':'Official announcements'}</h2></div><span className="subtle">Showing up to 50 updates</span></div>{items.length===0?<p className="muted">No published demonstration announcements are available yet.</p>:items.map(item=><article className="notice" key={item.id}><span className="tag">{item.status.replace('_',' ')} · SYNTHETIC DEMO</span><h3>{item.title}</h3><p>{item.summary}</p>{(officer||item.status==='PUBLISHED')&&<p style={{whiteSpace:'pre-wrap'}}>{item.content}</p>}<div className="meta">Source: {item.source}<br/>{item.publishedAt?`Published ${item.publishedAt.toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})} IST`:'Not published'} · {item.publishedById ? `Published by ${publishers.find(p=>p.id===item.publishedById)?.name ?? 'Demonstration officer'} (placement officer)` : `Created by ${item.createdById === user.id?'you':'another demonstration officer'}`} </div>{officer&&<form action={change} className="inline"><input type="hidden" name="id" value={item.id}/>{item.status==='DRAFT'&&item.createdById===user.id&&<button className="button" name="action" value="submit">Submit for review</button>}{item.status==='PENDING_REVIEW'&&item.createdById!==user.id&&<button className="button" name="action" value="approve">Approve</button>}{item.status==='APPROVED'&&<button className="button" name="action" value="publish">Publish</button>}</form>}</article>)}</div>{officer&&<section className="card form" id="create"><div className="eyebrow">Authority workspace</div><h2>Create a demonstration announcement</h2><p className="muted">A second officer must approve the draft before publication. Use synthetic content only.</p><form action={create}><label htmlFor="title">Title</label><input id="title" name="title" minLength={5} maxLength={160} required/><label htmlFor="summary">Summary</label><textarea id="summary" name="summary" minLength={10} maxLength={400} required/><label htmlFor="content">Full content</label><textarea id="content" name="content" minLength={20} maxLength={10000} required/><label htmlFor="source">Source reference</label><input id="source" name="source" minLength={5} maxLength={500} required/><button className="button">Save draft</button></form></section>}</>:<div className="card"><h2>{role==='Grievance reviewer'?'Confidential case workspace':'Platform administration'}</h2><p className="muted">{role==='Grievance reviewer'?'Case handling is not enabled. No confidential cases are stored in this demonstration.':'Account management and operational controls are planned. This role does not grant access to confidential case content.'}</p></div>}<div className="card"><h2>More support is on the way</h2><p className="muted">Policies, preparation resources, clarification requests and private support are planned for later phases. No real institutional records are connected.</p></div></main></div>}
+export default async function Portal({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; correction?: string }>;
+}) {
+  const user = await currentUser();
+  if (!user) redirect('/login');
+  const params = await searchParams;
+  const officer = can(user.roles, 'announcement.create');
+  const student = can(user.roles, 'announcement.read');
+  const items = student
+    ? await db.announcement.findMany({
+        where: {
+          institutionId: user.institutionId,
+          ...(officer ? {} : { status: 'PUBLISHED' }),
+        },
+        include: {
+          correction: { select: { id: true, status: true } },
+          correctionOf: { select: { id: true, title: true } },
+        },
+        orderBy: officer ? { createdAt: 'desc' } : { publishedAt: 'desc' },
+        take: 50,
+      })
+    : [];
+  const publishers = await db.user.findMany({
+    where: {
+      institutionId: user.institutionId,
+      id: {
+        in: items.flatMap((i) => (i.publishedById ? [i.publishedById] : [])),
+      },
+    },
+    select: { id: true, name: true },
+  });
+  const correctionTarget = officer
+    ? items.find(
+        (item) =>
+          item.id === params.correction &&
+          item.status === 'PUBLISHED' &&
+          !item.correction,
+      )
+    : undefined;
+  const corrections = items.filter(
+    (item) => item.status === 'PUBLISHED' && item.correctionOf,
+  );
+  const role = officer
+    ? 'Placement authority'
+    : user.roles.includes('STUDENT')
+      ? 'Student'
+      : user.roles.includes('REVIEWER')
+        ? 'Grievance reviewer'
+        : 'Administrator';
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <Link href="/" className="brand">
+          placement<span>bridge</span>·
+        </Link>
+        <small>DEMONSTRATION WORKSPACE</small>
+        <a href="#overview">◫ &nbsp; Overview</a>
+        {student && <a href="#announcements">▤ &nbsp; Announcements</a>}
+        {officer && <a href="#create">＋ &nbsp; New announcement</a>}
+        <form
+          action={async () => {
+            'use server';
+            await signOut({ redirectTo: '/' });
+          }}
+        >
+          <button className="button light" style={{ marginTop: 30 }}>
+            Sign out
+          </button>
+        </form>
+      </aside>
+      <main className="main" id="overview">
+        <div className="top">
+          <div>
+            <div className="eyebrow">{role} workspace</div>
+            <h1>Welcome, {user.name.split(' ')[0]}.</h1>
+            <p className="muted">
+              A clear view of the information that matters.
+            </p>
+          </div>
+          <span className="pill">Synthetic demonstration</span>
+        </div>
+        {params.error && (
+          <div className="card error" role="alert">
+            The action could not be completed. Check your input, permissions,
+            and the current announcement status.
+          </div>
+        )}
+        {student ? (
+          <>
+            {!officer && corrections.length > 0 && (
+              <section className="card">
+                <h2>Published corrections</h2>
+                <ul>
+                  {corrections.map((item) => (
+                    <li key={item.id}>
+                      <a className="underline" href={`#notice-${item.id}`}>
+                        {item.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <div className="card" id="announcements">
+              <div className="top">
+                <div>
+                  <div className="eyebrow">Information you can trace</div>
+                  <h2>
+                    {officer
+                      ? 'Announcement workspace'
+                      : 'Official announcements'}
+                  </h2>
+                </div>
+                <span className="subtle">Showing up to 50 updates</span>
+              </div>
+              {items.length === 0 ? (
+                <p className="muted">
+                  No published demonstration announcements are available yet.
+                </p>
+              ) : (
+                items.map((item) => (
+                  <article
+                    className="notice"
+                    id={`notice-${item.id}`}
+                    key={item.id}
+                  >
+                    <span className="tag">
+                      {item.correction?.status === 'PUBLISHED'
+                        ? 'Superseded'
+                        : item.status === 'PUBLISHED'
+                          ? item.correctionOf
+                            ? 'Official correction'
+                            : 'Official announcement'
+                          : item.status.replace('_', ' ')}{' '}
+                      · SYNTHETIC DEMO
+                    </span>
+                    <h3>{item.title}</h3>
+                    <p>{item.summary}</p>
+                    {item.correctionOf && (
+                      <p>
+                        Corrects: {item.correctionOf.title}. Reason:{' '}
+                        {item.changeReason}. Student action:{' '}
+                        {item.studentAction}. Effective{' '}
+                        {item.effectiveAt?.toLocaleDateString('en-IN', {
+                          timeZone: 'Asia/Kolkata',
+                        })}
+                        .
+                      </p>
+                    )}
+                    {item.correction?.status === 'PUBLISHED' && (
+                      <p>
+                        A correction has been published.{' '}
+                        {items.some(
+                          (row) => row.id === item.correction?.id,
+                        ) && (
+                          <a
+                            className="underline"
+                            href={`#notice-${item.correction.id}`}
+                          >
+                            View correction
+                          </a>
+                        )}
+                      </p>
+                    )}
+                    {(officer || item.status === 'PUBLISHED') && (
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{item.content}</p>
+                    )}
+                    <div className="meta">
+                      Source: {item.source}
+                      <br />
+                      {item.publishedAt
+                        ? `Published ${item.publishedAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`
+                        : 'Not published'}{' '}
+                      ·{' '}
+                      {item.publishedById
+                        ? `Published by ${item.publisherName ?? publishers.find((p) => p.id === item.publishedById)?.name ?? 'Demonstration officer'} (placement officer)`
+                        : `Created by ${item.createdById === user.id ? 'you' : 'another demonstration officer'}`}{' '}
+                    </div>
+                    {officer &&
+                      item.status === 'PUBLISHED' &&
+                      !item.correction && (
+                        <Link
+                          className="button light"
+                          href={`/portal?correction=${item.id}#create`}
+                        >
+                          Draft correction
+                        </Link>
+                      )}
+                    {officer && (
+                      <form action={change} className="inline">
+                        <input type="hidden" name="id" value={item.id} />
+                        {item.status === 'DRAFT' &&
+                          item.createdById === user.id && (
+                            <button
+                              className="button"
+                              name="action"
+                              value="submit"
+                            >
+                              Submit for review
+                            </button>
+                          )}
+                        {item.status === 'PENDING_REVIEW' &&
+                          item.createdById !== user.id && (
+                            <button
+                              className="button"
+                              name="action"
+                              value="approve"
+                            >
+                              Approve
+                            </button>
+                          )}
+                        {item.status === 'APPROVED' && (
+                          <button
+                            className="button"
+                            name="action"
+                            value="publish"
+                          >
+                            Publish
+                          </button>
+                        )}
+                      </form>
+                    )}
+                  </article>
+                ))
+              )}
+            </div>
+            {officer && (
+              <section className="card form" id="create">
+                <div className="eyebrow">Authority workspace</div>
+                <h2>
+                  {correctionTarget
+                    ? 'Draft correction'
+                    : 'Create a demonstration announcement'}
+                </h2>
+                <p className="muted">
+                  A second officer must approve the draft before publication.
+                  Use synthetic content only.
+                </p>
+                <form action={create}>
+                  {correctionTarget && (
+                    <>
+                      <p>Correcting: {correctionTarget.title}</p>
+                      <input
+                        type="hidden"
+                        name="correctionOfId"
+                        value={correctionTarget.id}
+                      />
+                      <label htmlFor="changeReason">
+                        Reason for the correction
+                      </label>
+                      <textarea
+                        id="changeReason"
+                        name="changeReason"
+                        minLength={10}
+                        maxLength={1000}
+                        required
+                      />
+                      <label htmlFor="studentAction">
+                        What students should do
+                      </label>
+                      <input
+                        id="studentAction"
+                        name="studentAction"
+                        minLength={5}
+                        maxLength={500}
+                        required
+                      />
+                      <label htmlFor="effectiveDate">
+                        Effective date (IST)
+                      </label>
+                      <input
+                        id="effectiveDate"
+                        name="effectiveDate"
+                        type="date"
+                        required
+                      />
+                      <Link className="underline" href="/portal#create">
+                        Cancel correction
+                      </Link>
+                    </>
+                  )}
+                  <label htmlFor="title">Title</label>
+                  <input
+                    id="title"
+                    name="title"
+                    minLength={5}
+                    maxLength={160}
+                    required
+                  />
+                  <label htmlFor="summary">
+                    {correctionTarget ? 'What changed' : 'Summary'}
+                  </label>
+                  <textarea
+                    id="summary"
+                    name="summary"
+                    minLength={10}
+                    maxLength={400}
+                    required
+                  />
+                  <label htmlFor="content">Full content</label>
+                  <textarea
+                    id="content"
+                    name="content"
+                    minLength={20}
+                    maxLength={10000}
+                    required
+                  />
+                  <label htmlFor="source">Source reference</label>
+                  <input
+                    id="source"
+                    name="source"
+                    minLength={5}
+                    maxLength={500}
+                    required
+                  />
+                  <button className="button">Save draft</button>
+                </form>
+              </section>
+            )}
+          </>
+        ) : (
+          <div className="card">
+            <h2>
+              {role === 'Grievance reviewer'
+                ? 'Confidential case workspace'
+                : 'Platform administration'}
+            </h2>
+            <p className="muted">
+              {role === 'Grievance reviewer'
+                ? 'Case handling is not enabled. No confidential cases are stored in this demonstration.'
+                : 'Account management and operational controls are planned. This role does not grant access to confidential case content.'}
+            </p>
+          </div>
+        )}
+        <div className="card">
+          <h2>More support is on the way</h2>
+          <p className="muted">
+            Policies, preparation resources, clarification requests and private
+            support are planned for later phases. No real institutional records
+            are connected.
+          </p>
+        </div>
+      </main>
+    </div>
+  );
+}
