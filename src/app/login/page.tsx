@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser, signIn } from '@/lib/auth';
 import { Brand } from '../identity';
+import { supabase } from '@/lib/supabase';
 
 const demoAccounts = [
   ['Student', 'student@example.test'],
@@ -36,7 +37,11 @@ async function authenticate(
   password: FormDataEntryValue | null,
 ) {
   try {
-    await signIn('credentials', { email, password, redirectTo: '/portal?start=1' });
+    await signIn('credentials', {
+      email,
+      password,
+      redirectTo: '/portal?start=1',
+    });
   } catch (error) {
     if (error instanceof AuthError) redirect('/login?error=1');
     throw error;
@@ -62,39 +67,63 @@ export default async function Login({
         <section className="login-panel">
           <h1>Sign in to PlacementBridge</h1>
           <p className="login-description">
-            Use your local demo account to access the placement workspace.
+            Sign in with Google to register as a student. Other roles require
+            administrator approval.
           </p>
           {error && (
             <p className="feedback error" role="alert">
               Sign-in failed. Check your demo credentials.
             </p>
           )}
-          <form
-            id="credentials"
-            className="form"
-            action={async (data) => {
-              'use server';
-              await authenticate(data.get('email'), data.get('password'));
-            }}
-          >
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              autoComplete="username"
-            />
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-            />
-            <button className="button">Sign in</button>
-          </form>
+          {process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY && (
+            <form
+              action={async () => {
+                'use server';
+                const client = await supabase();
+                const appUrl = process.env.APP_URL;
+                if (!appUrl) throw new Error('APP_URL is required');
+                const { data, error } = await client.auth.signInWithOAuth({
+                  provider: 'google',
+                  options: {
+                    redirectTo: new URL('/auth/callback', appUrl).toString(),
+                  },
+                });
+                if (error || !data.url) redirect('/login?error=oauth');
+                redirect(data.url);
+              }}
+            >
+              <button className="button">Continue with Google</button>
+            </form>
+          )}
+          {process.env.APP_MODE === 'development' &&
+            process.env.NODE_ENV !== 'production' && (
+              <form
+                id="credentials"
+                className="form"
+                action={async (data) => {
+                  'use server';
+                  await authenticate(data.get('email'), data.get('password'));
+                }}
+              >
+                <label htmlFor="email">Email</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  autoComplete="username"
+                />
+                <label htmlFor="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                />
+                <button className="button">Sign in</button>
+              </form>
+            )}
         </section>
         {(await localDemoEnabled()) && (
           <aside

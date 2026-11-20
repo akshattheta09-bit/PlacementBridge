@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Prisma } from '@prisma/client';
-import { currentUser, signOut } from '@/lib/auth';
+import { currentUser, signOutCurrent } from '@/lib/auth';
 import { can } from '@/lib/permissions';
 import { db } from '@/lib/db';
 import {
@@ -13,6 +13,12 @@ import {
 import { Profile } from './profile';
 import { WorkspaceFrame } from './workspace-frame';
 import { change, create } from './actions';
+import {
+  assignRole,
+  requestRole,
+  reviewRole,
+  revokeRole,
+} from './role-actions';
 
 const relations = {
   correction: { select: { id: true, status: true, fixtureArchived: true } },
@@ -399,7 +405,7 @@ export default async function Portal({
         ],
       }
     : where;
-  const [results, reviewCount, target, accounts] = await Promise.all([
+  const [results, reviewCount, target, accounts, requests] = await Promise.all([
     list
       ? db.announcement.findMany({
           where: noticeId ? { ...where, id: noticeId } : filters,
@@ -441,6 +447,24 @@ export default async function Portal({
           },
         })
       : [],
+    view === 'accounts' && admin
+      ? db.roleRequest.findMany({
+          where: {
+            status: 'PENDING',
+            user: { institutionId: user.institutionId },
+          },
+          include: { user: { select: { name: true, email: true } } },
+          orderBy: { createdAt: 'asc' },
+          take: 100,
+        })
+      : view === 'profile'
+        ? db.roleRequest.findMany({
+            where: { userId: user.id },
+            include: { user: { select: { name: true, email: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+          })
+        : [],
   ]);
   const hasMore =
     browsingNotices && results.length > pageSize && page < maxPage;
@@ -496,7 +520,8 @@ export default async function Portal({
       role={role}
       signOutAction={async () => {
         'use server';
-        await signOut({ redirectTo: '/' });
+        await signOutCurrent();
+        redirect('/');
       }}
     >
       <div
@@ -675,6 +700,36 @@ export default async function Portal({
         </section>
       )}
       {view === 'accounts' && (
+        <section className="panel">
+          <h2>Pending role requests</h2>
+          {requests.length === 0 ? (
+            <p>No pending requests.</p>
+          ) : (
+            requests.map((request) => (
+              <div key={request.id}>
+                <p>
+                  {request.user.name} ({request.user.email}) requests{' '}
+                  {roleNames[request.role]}
+                </p>
+                <form action={reviewRole}>
+                  <input type="hidden" name="id" value={request.id} />
+                  <button className="button" name="decision" value="approve">
+                    Approve
+                  </button>{' '}
+                  <button
+                    className="button outline"
+                    name="decision"
+                    value="deny"
+                  >
+                    Deny
+                  </button>
+                </form>
+              </div>
+            ))
+          )}
+        </section>
+      )}
+      {view === 'accounts' && (
         <div className="panel table-wrap">
           <table>
             <caption>Synthetic accounts · showing up to 100</caption>
@@ -683,6 +738,7 @@ export default async function Portal({
                 <th scope="col">Name</th>
                 <th scope="col">Roles</th>
                 <th scope="col">Account status</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -695,11 +751,90 @@ export default async function Portal({
                       .join(', ') || 'No active role'}
                   </td>
                   <td>{account.active ? 'Active' : 'Inactive'}</td>
+                  <td>
+                    {account.id !== user.id && account.active && (
+                      <form action={assignRole}>
+                        <input type="hidden" name="userId" value={account.id} />
+                        <label htmlFor={`assign-${account.id}`}>
+                          Assign role
+                        </label>
+                        <select
+                          id={`assign-${account.id}`}
+                          name="role"
+                          required
+                          defaultValue=""
+                        >
+                          <option value="">Select role</option>
+                          {(['OFFICER', 'REVIEWER', 'ADMIN'] as const)
+                            .filter(
+                              (role) =>
+                                !account.roles.some(
+                                  (assignment) => assignment.role === role,
+                                ),
+                            )
+                            .map((role) => (
+                              <option key={role} value={role}>
+                                {roleNames[role]}
+                              </option>
+                            ))}
+                        </select>
+                        <button className="button outline">Assign</button>
+                      </form>
+                    )}
+                    {account.id !== user.id &&
+                      account.roles
+                        .filter(({ role }) => role !== 'STUDENT')
+                        .map(({ role }) => (
+                          <form key={role} action={revokeRole}>
+                            <input
+                              type="hidden"
+                              name="userId"
+                              value={account.id}
+                            />
+                            <button name="role" value={role}>
+                              Revoke {roleNames[role]}
+                            </button>
+                          </form>
+                        ))}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {view === 'profile' && (
+        <section className="panel">
+          <h2>Request a privileged role</h2>
+          <p>
+            Requests require administrator approval. Your student access remains
+            available while you wait.
+          </p>
+          <form action={requestRole}>
+            <label htmlFor="role-request">Role</label>{' '}
+            <select id="role-request" name="role" required>
+              <option value="">Select a role</option>
+              <option value="OFFICER">Placement officer</option>
+              <option value="REVIEWER">Grievance reviewer</option>
+              <option value="ADMIN">Administrator</option>
+            </select>{' '}
+            <button className="button">Submit request</button>
+          </form>
+          {params.result === 'requested' && (
+            <p role="status">Request submitted for approval.</p>
+          )}
+          {params.error === 'role' && (
+            <p role="alert">
+              Request could not be submitted. It may already be pending or
+              assigned.
+            </p>
+          )}
+          {requests.map((request) => (
+            <p key={request.id}>
+              {roleNames[request.role]} · {request.status.toLowerCase()}
+            </p>
+          ))}
+        </section>
       )}
       {view === 'profile' && (
         <Profile

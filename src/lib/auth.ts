@@ -3,6 +3,8 @@ import Credentials from 'next-auth/providers/credentials';
 import { compare } from 'bcryptjs';
 import { db } from './db';
 import { z } from 'zod';
+import { supabase } from './supabase';
+import { provisionIdentity } from './identity';
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: 'jwt', maxAge: 60 * 60 * 8 },
   providers: [
@@ -27,6 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (
           !user?.active ||
           user.institutionId !== 'demo-institution' ||
+          !user.passwordHash ||
           !(await compare(parsed.data.password, user.passwordHash))
         )
           return null;
@@ -37,17 +40,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: { signIn: '/login' },
 });
 export async function currentUser() {
-  const session = await auth();
-  if (
-    process.env.APP_MODE !== 'development' ||
-    process.env.NODE_ENV === 'production' ||
-    !session?.user?.email
-  )
-    return null;
-  const user = await db.user.findUnique({
-    where: { email: session.user.email },
-    include: { roles: true },
-  });
+  let user;
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY) {
+    const client = await supabase();
+    const { data, error } = await client.auth.getUser();
+    if (error || !data.user) return null;
+    const identity = await provisionIdentity(data.user);
+    if (!identity) return null;
+    user = await db.user.findUnique({
+      where: { id: identity.id },
+      include: { roles: true },
+    });
+  } else {
+    const session = await auth();
+    if (
+      process.env.APP_MODE !== 'development' ||
+      process.env.NODE_ENV === 'production' ||
+      !session?.user?.email
+    )
+      return null;
+    user = await db.user.findUnique({
+      where: { email: session.user.email },
+      include: { roles: true },
+    });
+  }
   if (!user?.active) return null;
   const roles = user.roles
     .filter((r) => !r.revokedAt && (!r.expiresAt || r.expiresAt > new Date()))
@@ -62,4 +78,13 @@ export async function currentUser() {
     startPage: user.startPage,
     roles,
   };
+}
+
+export async function signOutCurrent() {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY) {
+    const client = await supabase();
+    await client.auth.signOut();
+  } else {
+    await signOut({ redirect: false });
+  }
 }

@@ -176,6 +176,87 @@ try {
   });
 }
 
+// Student access is immediate. Privileged access requires an administrator.
+await student.form(
+  profilePath,
+  ($) =>
+    $('form').filter(
+      (_, el) =>
+        $(el).attr('action') !== undefined &&
+        $(el).find('#role-request').length === 1,
+    ),
+  { role: 'REVIEWER' },
+);
+assert.match(
+  (await student.request(profilePath)).html('main').text(),
+  /Grievance reviewer.*pending/i,
+);
+assert.doesNotMatch(
+  (await student.request('/portal?view=cases')).html('main').text(),
+  /Confidential case workspace/,
+);
+const pending = (await admin.request('/portal?view=accounts')).html;
+const approval = pending('form').filter(
+  (_, el) =>
+    pending(el).find('button[value=approve]').length &&
+    pending(el).parent().text().includes('student@example.test'),
+);
+assert.equal(approval.length, 1);
+await admin.form(
+  '/portal?view=accounts',
+  ($) =>
+    $('form').filter(
+      (_, el) =>
+        $(el).find('button[value=approve]').length &&
+        $(el).parent().text().includes('student@example.test'),
+    ),
+  { decision: 'approve' },
+);
+assert.match(
+  (await student.request('/portal?view=cases')).html('main').text(),
+  /Confidential case workspace/,
+);
+await admin.form(
+  '/portal?view=accounts',
+  ($) =>
+    $('tr')
+      .filter((_, el) => $(el).text().includes('Avery Student'))
+      .find('form')
+      .filter((_, el) => $(el).find('button[value=REVIEWER]').length),
+  { role: 'REVIEWER' },
+);
+assert.doesNotMatch(
+  (await student.request('/portal?view=cases')).html('main').text(),
+  /Confidential case workspace/,
+);
+// The administrator may also assign a role without a request.
+await admin.form(
+  '/portal?view=accounts',
+  ($) =>
+    $('tr')
+      .filter((_, el) => $(el).text().includes('Avery Student'))
+      .find('form')
+      .filter((_, el) => $(el).find('select[name=role]').length),
+  { role: 'OFFICER' },
+);
+assert.match(
+  (await student.request('/portal?view=review')).html('main').text(),
+  /Review queue/,
+);
+await admin.form(
+  '/portal?view=accounts',
+  ($) =>
+    $('tr')
+      .filter((_, el) => $(el).text().includes('Avery Student'))
+      .find('form')
+      .filter((_, el) => $(el).find('button[value=OFFICER]').length),
+  { role: 'OFFICER' },
+);
+assert.doesNotMatch(
+  (await student.request('/portal?view=review')).html('main').text(),
+  /Review queue/,
+);
+
 const demo = session();
 const signIn = await demo.request('/login');
 if (signIn.html('.demo-picker').length) {

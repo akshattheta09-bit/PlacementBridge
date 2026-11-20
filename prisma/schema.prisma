@@ -45,9 +45,11 @@ model User {
   name          String
   preferredName String?
   startPage     StartPage        @default(overview)
-  passwordHash  String
+  authSubject   String?          @unique
+  passwordHash  String?
   active        Boolean          @default(true)
   roles         RoleAssignment[]
+  requests      RoleRequest[]
 }
 
 model RoleAssignment {
@@ -97,4 +99,16 @@ model AuditEvent {
   action        String
   resourceId    String
   createdAt     DateTime @default(now())
+}
+
+model RoleRequest {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  role      Role
+  status    String   @default("PENDING")
+  reviewedBy String?
+  createdAt DateTime @default(now())
+  reviewedAt DateTime?
+  @@index([status, createdAt])
 }
